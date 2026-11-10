@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Turbo Circuit 로그인</title>
+<style>
+:root{color-scheme:dark}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 30% 20%,#1e2a55,#05070f 70%);color:#e6eeff;font-family:"Segoe UI","Malgun Gothic",system-ui,sans-serif;padding:16px;box-sizing:border-box}
+.card{width:min(420px,100%);background:#111a33;border:1px solid #2c3d6e;border-radius:16px;padding:26px 24px;box-shadow:0 10px 40px rgba(0,0,0,.6);text-align:center}
+.logo{font-style:italic;font-weight:900;line-height:.9}
+.logo .a{font-size:30px;color:#fff;text-shadow:2px 2px 0 #ff5a1f}
+.logo .b{font-size:40px;background:linear-gradient(90deg,#ff5a1f,#ffd23f);-webkit-background-clip:text;background-clip:text;color:transparent}
+p{color:#aab8dd;font-size:14px;line-height:1.6}
+button{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:13px;border:0;border-radius:10px;font-size:16px;font-weight:800;cursor:pointer;background:#fff;color:#222;margin-top:12px}
+button:disabled{opacity:.6;cursor:default}
+.msg{min-height:22px;margin-top:14px;font-weight:700;font-size:14px}
+.err{color:#ff7b6b}.ok{color:#5be08a}
+.done{font-size:46px;margin:6px 0}
+</style>
+</head>
+<body>
+<div class="card">
+ <div class="logo"><div class="a">TURBO</div><div class="b">CIRCUIT</div></div>
+ <div id="box">
+  <p>게임에서 연 로그인 창입니다.<br>Google 계정으로 로그인하면 게임에 자동으로 로그인됩니다.</p>
+  <button id="go"><svg width="20" height="20" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3 0 5.8 1.1 7.9 3l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.2-.1-2.3-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3 0 5.8 1.1 7.9 3l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.2-.1-2.3-.4-3.5z"/></svg>Google 계정으로 로그인</button>
+ </div>
+ <div class="msg" id="msg"></div>
+</div>
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+const cfg = { apiKey: 'AIzaSyCllC83WnvWaj8LqcpsRmcs_5XglpgYBD4', authDomain: 'turbo-circuit-b0d3d.firebaseapp.com', projectId: 'turbo-circuit-b0d3d', appId: '1:730829677593:web:cfe69f9a53a3bf76b0b688' };
+const $ = s => document.querySelector(s);
+const say = (t, c) => { $('#msg').textContent = t; $('#msg').className = 'msg ' + (c || ''); };
+// 게임이 만든 1회용 코드 (주소의 # 뒤 — 서버로 전송되지 않음)
+const code = (new URLSearchParams(location.hash.slice(1))).get('c') || '';
+history.replaceState(null, '', location.pathname);
+if (!/^[0-9a-f]{32}$/.test(code)) {
+  $('#box').innerHTML = '<p>이 페이지는 게임의 <b>Google로 로그인</b> 버튼으로 열어야 합니다.</p>';
+} else {
+  const auth = getAuth(initializeApp(cfg));
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  $('#go').onclick = async () => {
+    $('#go').disabled = true; say('Google 로그인 창을 여는 중…');
+    try {
+      const res = await signInWithPopup(auth, provider);
+      const g = GoogleAuthProvider.credentialFromResult(res);
+      if (!g || !g.idToken) throw new Error('Google 인증 정보를 받지 못했습니다');
+      say('게임으로 전달하는 중…');
+      const tok = await res.user.getIdToken();
+      const url = `https://firestore.googleapis.com/v1/projects/${cfg.projectId}/databases/(default)/documents/handoff/${code}?currentDocument.exists=false`;
+      const r = await fetch(url, { method: 'PATCH', headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: { g: { stringValue: g.idToken }, uid: { stringValue: res.user.uid }, created: { timestampValue: new Date().toISOString() } } }) });
+      if (!r.ok) throw new Error(r.status === 409 ? '이미 사용된 로그인 코드입니다. 게임에서 다시 시도하세요' : '전달 실패 (' + r.status + ')');
+      await signOut(auth); // 이 브라우저에는 로그인 상태를 남기지 않음
+      $('#box').innerHTML = '<div class="done">✅</div><p><b>로그인 완료!</b><br>이 창을 닫고 게임으로 돌아가세요.</p>';
+      say('');
+      setTimeout(() => { try { window.close(); } catch (e) {} }, 1500);
+    } catch (e) {
+      const c = String(e && e.code || '');
+      say(c.includes('popup-closed') || c.includes('cancelled') ? '로그인 창이 닫혔습니다. 다시 눌러 주세요'
+        : c.includes('popup-blocked') ? '팝업이 차단되었습니다. 팝업을 허용한 뒤 다시 눌러 주세요'
+        : c.includes('unauthorized-domain') ? '이 주소가 Firebase 승인 도메인에 없습니다 (관리자 설정 필요)'
+        : (e && e.message) || '로그인 실패', 'err');
+      $('#go').disabled = false;
+    }
+  };
+}
+</script>
+</body>
+</html>
